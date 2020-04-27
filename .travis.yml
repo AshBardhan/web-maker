@@ -1,8 +1,13 @@
 language: node_js
 node_js:
-  - '8.1.2'
+  - '10'
 install:
-  - npm install -g eslint
-  - npm install -g babel-eslint
+  - yarn add global eslint
+  - yarn add global babel-eslint
+  - yarn add global eslint-plugin-react
+  - yarn add global eslint-plugin-mocha
+  - yarn add global eslint-config-synacor
 script:
-  - eslint src/*.js
+  - yarn run lint
+  - yarn run test
+cache: yarn

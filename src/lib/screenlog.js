@@ -1,3 +1,74 @@
+let mainWindow = window.parent;
+
+function sanitizeDomNode(node) {
+	const fakeNode = {
+		nodeName: node.nodeName,
+		nodeType: node.nodeType,
+		tagName: node.tagName,
+		childNodes: [...node.childNodes].map(child => sanitizeDomNode(child)),
+		textContent: node.textContent
+	};
+	if (node.attributes) {
+		fakeNode.attributes = [...node.attributes].map(attribute => ({
+			name: attribute.name,
+			value: attribute.value
+		}));
+	}
+	return fakeNode;
+}
+
+function sanitizeEvent(event) {
+	const fakeEvent = {};
+
+	// Doing this still does't show class name in inspector
+	// fakeEvent.__proto__.constructor = event.constructor
+
+	function isSerializable(thing) {
+		try {
+			JSON.stringify(thing);
+		} catch (e) {
+			return false;
+		}
+		return true;
+	}
+	const prohibitedKeys = ['srcElement', 'sourceCapabilities'];
+	for (var key in event) {
+		if (typeof event[key] === 'function' || prohibitedKeys.includes(key)) {
+			continue;
+		}
+
+		if (
+			event[key] instanceof HTMLElement ||
+			event[key] instanceof HTMLHtmlElement
+		) {
+			fakeEvent[key] = sanitizeDomNode(event[key]);
+			continue;
+		} else if (event[key] instanceof Window) {
+			fakeEvent[key] = 'Window';
+			continue;
+		} else if (event[key] instanceof Document) {
+			fakeEvent[key] = 'Document';
+			continue;
+		}
+
+		if (isSerializable(event[key])) {
+			fakeEvent[key] = event[key];
+		}
+	}
+	return fakeEvent;
+}
+function sendLog(...args) {
+	const sanitizedArgs = [...args].map(arg => {
+		if (arg && arg instanceof HTMLElement) {
+			return sanitizeDomNode(arg);
+		} else if (arg && arg instanceof Event) {
+			return sanitizeEvent(arg);
+		}
+		return arg;
+	});
+	mainWindow.postMessage({ logs: sanitizedArgs }, '*');
+}
+
 (function() {
 	var logEl,
 		isInitialized = false,
@@ -37,18 +108,27 @@
 			if (_options.proxyCallback) {
 				_options.proxyCallback.apply(null, arguments);
 			}
-			if (_options.noUi) { return; }
-			var el = createElement('div', 'line-height:18px;min-height:18px;background:' +
-				(logEl.children.length % 2 ? 'rgba(255,255,255,0.1)' : '') + ';color:' + color); // zebra lines
+			if (_options.noUi) {
+				return;
+			}
+			var el = createElement(
+				'div',
+				'line-height:18px;min-height:18px;background:' +
+					(logEl.children.length % 2 ? 'rgba(255,255,255,0.1)' : '') +
+					';color:' +
+					color
+			); // zebra lines
 			var val = [].slice.call(arguments).reduce(function(prev, arg) {
-				return prev + ' ' + (typeof arg === "object" ? JSON.stringify(arg) : arg);
+				return (
+					prev + ' ' + (typeof arg === 'object' ? JSON.stringify(arg) : arg)
+				);
 			}, '');
 			el.textContent = val;
 
 			logEl.appendChild(el);
 
 			// Scroll to last element, if autoScroll option is set.
-			if(_options.autoScroll) {
+			if (_options.autoScroll) {
 				logEl.scrollTop = logEl.scrollHeight - logEl.clientHeight;
 			}
 		};
@@ -56,7 +136,7 @@
 
 	function clear() {
 		if (_options.noUi) {
-			window.parent.clearConsole();
+			mainWindow.clearConsole();
 			return;
 		}
 		logEl.innerHTML = '';
@@ -79,18 +159,20 @@
 	}
 
 	function setOptions(options) {
-		for(var i in options)
-			if(options.hasOwnProperty(i) && _options.hasOwnProperty(i)) {
+		for (var i in options)
+			if (options.hasOwnProperty(i) && _options.hasOwnProperty(i)) {
 				_options[i] = options[i];
 			}
 	}
 
 	function init(options) {
-		if (isInitialized) { return; }
+		if (isInitialized) {
+			return;
+		}
 
 		isInitialized = true;
 
-		if(options) {
+		if (options) {
 			setOptions(options);
 		}
 
@@ -175,19 +257,23 @@
 		destroy: checkInitDecorator(destroy)
 	};
 })();
-var mainWindow = window.parent.onMessageFromConsole ? window.parent : window.parent.opener;
 screenLog.init({
 	noUi: true,
-	proxyCallback: function () {
-		mainWindow.onMessageFromConsole.apply(null, arguments);
+	proxyCallback: function(...args) {
+		sendLog(...args);
 	}
 });
 window._wmEvaluate = function _wmEvaluate(expr) {
 	try {
 		var result = eval(expr);
-	} catch(e) {
-		mainWindow.onMessageFromConsole.call(null, e);
+	} catch (e) {
+		sendLog(e.stack || e.message);
 		return;
 	}
-	mainWindow.onMessageFromConsole.call(null, result);
-}
+	sendLog(result);
+};
+window.addEventListener('message', e => {
+	if (e.data && e.data.exprToEval) {
+		_wmEvaluate(e.data.exprToEval);
+	}
+});

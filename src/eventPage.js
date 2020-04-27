@@ -45,5 +45,3 @@ chrome.runtime.onInstalled.addListener(function callback(details) {
 		}
 	}
 });
-
-chrome.runtime.setUninstallURL('https://webmakerapp.com/uninstall/');
